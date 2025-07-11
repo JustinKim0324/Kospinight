@@ -1,53 +1,40 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import io
 
+# 파일 자동 로딩 (깃허브 또는 로컬)
 @st.cache_data
-def load_data(file):
-    encodings = ['utf-8', 'cp949', 'euc-kr']
-    for enc in encodings:
-        try:
-            file.seek(0)  # 파일의 처음으로 돌아가 다시 읽기 시도
-            data = pd.read_csv(file, encoding=enc)
-            break
-        except UnicodeDecodeError:
-            continue
-    else:
-        raise ValueError("지원하지 않는 인코딩입니다.")
-
-    data.columns = ['일자', 'K200지수', '야간_외국인_선물', '정규장_외국인_현물', '정규장_외국인_선물']
-    data = data.drop(index=0)
+def load_data():
+    url = "https://raw.githubusercontent.com/{YOUR_GITHUB_USERNAME}/{YOUR_REPO_NAME}/main/외국인%20야간선물%20전처리%20파일.csv"
+    data = pd.read_csv(url, encoding='cp949')
     data['일자'] = pd.to_datetime(data['일자'])
-    for col in ['K200지수', '야간_외국인_선물', '정규장_외국인_현물', '정규장_외국인_선물']:
-        data[col] = data[col].astype(str).str.replace(',', '').astype(float)
-    data = data.sort_values(by='일자').reset_index(drop=True)
-    data['다음날_정규장_외국인_현물'] = data['정규장_외국인_현물'].shift(-1)
-    data['다음날_정규장_외국인_선물'] = data['정규장_외국인_선물'].shift(-1)
-    data['다음날_K200지수'] = data['K200지수'].shift(-1)
-    data['K200지수_상승률'] = (data['다음날_K200지수'] - data['K200지수']) / data['K200지수'] * 100
-    return data.dropna()
+    return data
 
-st.title('외국인 야간선물과 다음날 시장의 상관관계 분석')
+data = load_data()
 
-uploaded_file = st.file_uploader("CSV 파일 업로드", type="csv")
+st.title('외국인 야간선물 데이터 분석')
 
-if uploaded_file is not None:
-    try:
-        data = load_data(uploaded_file)
+# 콘텐츠 1: 야간선물 vs 다음날 정규장 외국인 선물
+st.header("1. 외국인 야간선물 vs 다음날 정규장 외국인 선물")
+st.dataframe(data[['일자', '야간_외국인_선물', '다음날_정규장_외국인_선물']].set_index('일자'))
 
-        correlation_matrix = pd.DataFrame({
-            '구분': ['상관계수'],
-            '야간선물 vs 다음날 정규장 외국인 선물': [np.corrcoef(data['야간_외국인_선물'], data['다음날_정규장_외국인_선물'])[0,1]],
-            '야간선물 vs 다음날 정규장 외국인 현물': [np.corrcoef(data['야간_외국인_선물'], data['다음날_정규장_외국인_현물'])[0,1]],
-            '야간선물 vs 다음날 K200 지수 상승률': [np.corrcoef(data['야간_외국인_선물'], data['K200지수_상승률'])[0,1]]
-        })
+corr_fut = np.corrcoef(data['야간_외국인_선물'], data['다음날_정규장_외국인_선물'])[0, 1]
+corr_type_fut = "양의" if corr_fut > 0 else "음의"
+st.write(f"두 데이터 간 관계는 {corr_type_fut} 상관관계이고, 확률은 {abs(corr_fut)*100:.2f}%이다.")
 
-        st.subheader("분석 결과")
-        st.table(correlation_matrix)
+# 콘텐츠 2: 야간선물 vs 다음날 정규장 외국인 현물
+st.header("2. 외국인 야간선물 vs 다음날 정규장 외국인 현물")
+st.dataframe(data[['일자', '야간_외국인_선물', '다음날_정규장_외국인_현물']].set_index('일자'))
 
-        st.subheader("데이터 미리보기")
-        st.dataframe(data[['일자', '야간_외국인_선물', '다음날_정규장_외국인_현물', '다음날_정규장_외국인_선물', 'K200지수_상승률']])
-        
-    except Exception as e:
-        st.error(f"에러 발생: {e}")
+corr_cash = np.corrcoef(data['야간_외국인_선물'], data['다음날_정규장_외국인_현물'])[0, 1]
+corr_type_cash = "양의" if corr_cash > 0 else "음의"
+st.write(f"두 데이터 간 관계는 {corr_type_cash} 상관관계이고, 확률은 {abs(corr_cash)*100:.2f}%이다.")
+
+# 콘텐츠 3: 야간선물 vs 다음날 K200 지수 상승률
+st.header("3. 외국인 야간선물 vs 다음날 K200지수 상승률")
+data['K200지수_상승률'] = data['K200지수_상승률'].round(2)
+st.dataframe(data[['일자', '야간_외국인_선물', '다음날_K200지수', 'K200지수_상승률']].set_index('일자'))
+
+corr_k200 = np.corrcoef(data['야간_외국인_선물'], data['K200지수_상승률'])[0, 1]
+corr_type_k200 = "양의" if corr_k200 > 0 else "음의"
+st.write(f"두 데이터 간 관계는 {corr_type_k200} 상관관계이고, 확률은 {abs(corr_k200)*100:.2f}%이다.")
